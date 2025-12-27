@@ -1,1 +1,9 @@
-rootProject.name = 'remittance-api'
+rootProject.name = "remittance"
+
+include(
+        "remittance-domain",
+        "remittance-application",
+        "remittance-infra",
+        "remittance-presentation",
+        "remittance-api"
+)

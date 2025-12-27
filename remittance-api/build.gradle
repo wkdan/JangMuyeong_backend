@@ -1,0 +1,17 @@
+plugins {
+    id 'org.springframework.boot'
+    id 'io.spring.dependency-management'
+    id 'java'
+}
+
+dependencies {
+    implementation project(':remittance-domain')
+    implementation project(':remittance-application')
+    implementation project(':remittance-infra')
+    implementation project(':remittance-presentation')
+
+    runtimeOnly "com.mysql:mysql-connector-j"
+    testImplementation "org.springframework.boot:spring-boot-starter-test"
+}
+
+tasks.named('test') { useJUnitPlatform() }
