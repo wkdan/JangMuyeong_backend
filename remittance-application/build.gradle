@@ -3,14 +3,17 @@ plugins { id 'java-library' }
 repositories { mavenCentral() }
 
 dependencies {
+    // domain을 사용하는 계층이므로 api로 설정
     api project(':remittance-domain')
+
+    // 스프링 DI, 트랜잭션 필요
     implementation "org.springframework:spring-context"
     implementation "org.springframework:spring-tx"
 
+    // 테스트 의존성
     testImplementation platform("org.junit:junit-bom:5.10.2")
     testImplementation "org.junit.jupiter:junit-jupiter"
     testRuntimeOnly "org.junit.platform:junit-platform-launcher"
-
     testImplementation "org.mockito:mockito-junit-jupiter:5.12.0"
     testImplementation "org.assertj:assertj-core:3.26.3"
 }
