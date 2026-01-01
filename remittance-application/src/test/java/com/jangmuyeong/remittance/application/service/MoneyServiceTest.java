@@ -45,13 +45,18 @@ class MoneyServiceTest {
 
 	@Test
 	void deposit_success_saves_account_and_ledger() {
-		Account a = new Account(1L, "111-222", AccountStatus.ACTIVE, 0L);
-		when(accountPort.findByIdForUpdate(1L)).thenReturn(Optional.of(a));
+		Account base = new Account(1L, "111-222", AccountStatus.ACTIVE, 0L);
+		Account locked = new Account(1L, "111-222", AccountStatus.ACTIVE, 0L);
+
+		when(accountPort.findByAccountNo("111-222")).thenReturn(Optional.of(base));
+		when(accountPort.findByIdForUpdate(1L)).thenReturn(Optional.of(locked));
 		when(accountPort.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
 
-		var res = service.deposit(new DepositCommand(1L, 1_000_000));
+		com.jangmuyeong.remittance.application.dto.result.BalanceResult res =
+			service.deposit(new DepositCommand("111-222", 1_000_000));
 
 		assertThat(res.accountId()).isEqualTo(1L);
+		assertThat(res.accountNo()).isEqualTo("111-222");
 		assertThat(res.balance()).isEqualTo(1_000_000);
 
 		ArgumentCaptor<LedgerEntry> captor = ArgumentCaptor.forClass(LedgerEntry.class);
@@ -63,13 +68,14 @@ class MoneyServiceTest {
 		assertThat(e.getAmount()).isEqualTo(1_000_000);
 		assertThat(e.getFeeAmount()).isEqualTo(0);
 		assertThat(e.getOccurredAt()).isEqualTo(Instant.now(clock));
+		assertThat(e.getBalanceAfter()).isEqualTo(1_000_000);
 	}
 
 	@Test
 	void deposit_throws_when_account_not_found() {
-		when(accountPort.findByIdForUpdate(999L)).thenReturn(Optional.empty());
+		when(accountPort.findByAccountNo("999-000")).thenReturn(Optional.empty());
 
-		assertThatThrownBy(() -> service.deposit(new DepositCommand(999L, 1000)))
+		assertThatThrownBy(() -> service.deposit(new DepositCommand("999-000", 1000)))
 			.isInstanceOf(DomainException.class);
 
 		verify(accountPort, never()).save(any());
@@ -78,35 +84,45 @@ class MoneyServiceTest {
 
 	@Test
 	void withdraw_success_checks_limit_and_saves_ledger() {
-		Account a = new Account(1L, "111-222", AccountStatus.ACTIVE, 1_000_000L);
-		when(accountPort.findByIdForUpdate(1L)).thenReturn(Optional.of(a));
+		Account base = new Account(1L, "111-222", AccountStatus.ACTIVE, 1_000_000L);
+		Account locked = new Account(1L, "111-222", AccountStatus.ACTIVE, 1_000_000L);
+
+		when(accountPort.findByAccountNo("111-222")).thenReturn(Optional.of(base));
+		when(accountPort.findByIdForUpdate(1L)).thenReturn(Optional.of(locked));
 		when(accountPort.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
 
 		DailyLimit limit = new DailyLimit(1L, 1L, LocalDate.now(clock), 0L, 0L);
 		when(dailyLimitPort.getOrCreate(eq(1L), eq(LocalDate.now(clock)))).thenReturn(limit);
 		when(dailyLimitPort.save(any(DailyLimit.class))).thenAnswer(inv -> inv.getArgument(0));
 
-		var res = service.withdraw(new WithdrawCommand(1L, 200_000));
+		com.jangmuyeong.remittance.application.dto.result.BalanceResult res =
+			service.withdraw(new WithdrawCommand("111-222", 200_000));
 
+		assertThat(res.accountNo()).isEqualTo("111-222");
 		assertThat(res.balance()).isEqualTo(800_000);
 
 		ArgumentCaptor<LedgerEntry> captor = ArgumentCaptor.forClass(LedgerEntry.class);
 		verify(ledgerPort).save(captor.capture());
 		LedgerEntry e = captor.getValue();
+
 		assertThat(e.getType()).isEqualTo(TransactionType.WITHDRAW);
 		assertThat(e.getAmount()).isEqualTo(200_000);
+		assertThat(e.getBalanceAfter()).isEqualTo(800_000);
 	}
 
 	@Test
 	void withdraw_throws_when_daily_limit_exceeded_and_does_not_save_account_or_ledger() {
-		Account a = new Account(1L, "111-222", AccountStatus.ACTIVE, 1_000_000L);
-		when(accountPort.findByIdForUpdate(1L)).thenReturn(Optional.of(a));
+		Account base = new Account(1L, "111-222", AccountStatus.ACTIVE, 1_000_000L);
+		Account locked = new Account(1L, "111-222", AccountStatus.ACTIVE, 1_000_000L);
+
+		when(accountPort.findByAccountNo("111-222")).thenReturn(Optional.of(base));
+		when(accountPort.findByIdForUpdate(1L)).thenReturn(Optional.of(locked));
 
 		// 이미 900,000 출금된 상태에서 200,000 추가 시 한도 초과
 		DailyLimit limit = new DailyLimit(1L, 1L, LocalDate.now(clock), 900_000L, 0L);
 		when(dailyLimitPort.getOrCreate(eq(1L), eq(LocalDate.now(clock)))).thenReturn(limit);
 
-		assertThatThrownBy(() -> service.withdraw(new WithdrawCommand(1L, 200_000)))
+		assertThatThrownBy(() -> service.withdraw(new WithdrawCommand("111-222", 200_000)))
 			.isInstanceOf(DomainException.class);
 
 		verify(dailyLimitPort, never()).save(any());   // addWithdraw에서 터져서 save까지 못감

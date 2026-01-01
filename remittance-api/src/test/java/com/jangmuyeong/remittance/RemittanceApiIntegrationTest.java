@@ -25,19 +25,18 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class RemittanceApiIntegrationTest {
 
-	// Bean 주입 안 씀(IDE 경고 회피)
 	private final ObjectMapper om = new ObjectMapper();
 	@Autowired MockMvc mvc;
 
 	// -------------------- 1) 이체 수수료 1% --------------------
 	@Test
 	void remit_applies_fee_1percent_and_updates_balances() throws Exception {
-		long aId = createAccount(randomAccountNo("A"));
-		long bId = createAccount(randomAccountNo("B"));
+		String aNo = createAccount(randomAccountNo("A"));
+		String bNo = createAccount(randomAccountNo("B"));
 
-		deposit(aId, 1_000_000);
+		deposit(aNo, 1_000_000);
 
-		JsonNode data = json(remit(aId, bId, 100_000, 200)).path("data");
+		JsonNode data = json(remit(aNo, bNo, 100_000, 200)).path("data");
 
 		assertThat(data.path("fee").asLong()).isEqualTo(1_000);
 		assertThat(data.path("fromBalance").asLong()).isEqualTo(899_000); // 1,000,000 - 100,000 - 1,000
@@ -47,40 +46,40 @@ class RemittanceApiIntegrationTest {
 	// -------------------- 2) 출금 일한도 1,000,000 --------------------
 	@Test
 	void withdraw_daily_limit_1_000_000_is_enforced() throws Exception {
-		long aId = createAccount(randomAccountNo("W"));
-		deposit(aId, 2_000_000);
+		String aNo = createAccount(randomAccountNo("W"));
+		deposit(aNo, 2_000_000);
 
-		withdraw(aId, 900_000, 200); // OK
+		withdraw(aNo, 900_000, 200); // OK
 
-		JsonNode err = json(withdraw(aId, 200_000, 400)); // 누적 1,100,000 -> FAIL
+		JsonNode err = json(withdraw(aNo, 200_000, 400)); // 누적 1,100,000 -> FAIL
 		assertThat(err.path("code").asText()).isEqualTo("WITHDRAW_DAILY_LIMIT_EXCEEDED");
 	}
 
 	// -------------------- 3) 이체 일한도 3,000,000 --------------------
 	@Test
 	void transfer_daily_limit_3_000_000_is_enforced() throws Exception {
-		long fromId = createAccount(randomAccountNo("F"));
-		long toId = createAccount(randomAccountNo("T"));
+		String fromNo = createAccount(randomAccountNo("F"));
+		String toNo = createAccount(randomAccountNo("T"));
 
-		deposit(fromId, 10_000_000);
+		deposit(fromNo, 10_000_000);
 
-		remit(fromId, toId, 2_000_000, 200); // OK
+		remit(fromNo, toNo, 2_000_000, 200); // OK
 
-		JsonNode err = json(remit(fromId, toId, 1_500_000, 400)); // 누적 3,500,000 -> FAIL
+		JsonNode err = json(remit(fromNo, toNo, 1_500_000, 400)); // 누적 3,500,000 -> FAIL
 		assertThat(err.path("code").asText()).isEqualTo("TRANSFER_DAILY_LIMIT_EXCEEDED");
 	}
 
-	// -------------------- 4) 거래내역 최신순 --------------------
+	// -------------------- 4) 거래내역 최신순 + balanceAfter 검증 --------------------
 	@Test
 	void transactions_are_returned_in_latest_order() throws Exception {
-		long aId = createAccount(randomAccountNo("TXA"));
-		long bId = createAccount(randomAccountNo("TXB"));
+		String aNo = createAccount(randomAccountNo("TXA"));
+		String bNo = createAccount(randomAccountNo("TXB"));
 
-		deposit(aId, 1_000_000);
-		withdraw(aId, 200_000, 200);
-		remit(aId, bId, 100_000, 200);
+		deposit(aNo, 1_000_000);
+		withdraw(aNo, 200_000, 200);
+		remit(aNo, bNo, 100_000, 200);
 
-		JsonNode listA = transactions(aId, 20);
+		JsonNode listA = transactions(aNo, 20);
 		assertThat(listA.isArray()).isTrue();
 		assertThat(listA.size()).isGreaterThanOrEqualTo(4);
 
@@ -92,24 +91,75 @@ class RemittanceApiIntegrationTest {
 		assertThat(typesA).contains("FEE");
 
 		// occurredAt 내림차순(최신순) 체크
+		// (정렬: occurredAt desc, id desc)
 		for (int i = 0; i < listA.size() - 1; i++) {
 			Instant t1 = Instant.parse(listA.get(i).path("occurredAt").asText());
 			Instant t2 = Instant.parse(listA.get(i + 1).path("occurredAt").asText());
 			assertThat(!t1.isBefore(t2)).isTrue(); // t1 >= t2
 		}
 
-		JsonNode listB = transactions(bId, 20);
-		assertThat(listB.toString()).contains("TRANSFER_IN");
+		// balanceAfter(거래 후 잔액) 체크
+		// 정책: 이체는 수수료 포함 총 차감 후 잔액을 from의 TRANSFER_OUT/FEE에 기록
+		boolean hasDepositAfter = false;
+		boolean hasWithdrawAfter = false;
+		boolean hasTransferOutAfter = false;
+		boolean hasFeeAfter = false;
+
+		for (int i = 0; i < listA.size(); i++) {
+			JsonNode item = listA.get(i);
+			String type = item.path("type").asText();
+			long balanceAfter = item.path("balanceAfter").asLong();
+
+			if ("DEPOSIT".equals(type)) {
+				assertThat(balanceAfter).isEqualTo(1_000_000);
+				hasDepositAfter = true;
+			}
+			if ("WITHDRAW".equals(type)) {
+				assertThat(balanceAfter).isEqualTo(800_000);
+				hasWithdrawAfter = true;
+			}
+			if ("TRANSFER_OUT".equals(type)) {
+				assertThat(balanceAfter).isEqualTo(699_000); // 800,000 - 100,000 - 1,000
+				hasTransferOutAfter = true;
+			}
+			if ("FEE".equals(type)) {
+				assertThat(balanceAfter).isEqualTo(699_000); // 수수료 포함 총 차감 결과와 동일
+				hasFeeAfter = true;
+			}
+		}
+
+		assertThat(hasDepositAfter).isTrue();
+		assertThat(hasWithdrawAfter).isTrue();
+		assertThat(hasTransferOutAfter).isTrue();
+		assertThat(hasFeeAfter).isTrue();
+
+		// 수취 계좌는 TRANSFER_IN의 balanceAfter가 100,000이어야 함
+		JsonNode listB = transactions(bNo, 20);
+		boolean hasTransferInAfter = false;
+		for (int i = 0; i < listB.size(); i++) {
+			JsonNode item = listB.get(i);
+			if ("TRANSFER_IN".equals(item.path("type").asText())) {
+				assertThat(item.path("balanceAfter").asLong()).isEqualTo(100_000);
+				hasTransferInAfter = true;
+				break;
+			}
+		}
+		assertThat(hasTransferInAfter).isTrue();
+
+		// 현재 잔액 조회 API와 거래내역의 최신 balanceAfter가 일치해야 함
+		long currentBalance = balance(aNo).path("balance").asLong();
+		long latestBalanceAfter = listA.get(0).path("balanceAfter").asLong();
+		assertThat(currentBalance).isEqualTo(latestBalanceAfter);
 	}
 
 	// -------------------- 5) 계좌 삭제 --------------------
 	@Test
 	void delete_account_then_operations_return_inactive() throws Exception {
-		long aId = createAccount(randomAccountNo("DEL"));
+		String aNo = createAccount(randomAccountNo("DEL"));
 
-		deleteAccount(aId, 200);
+		deleteAccount(aNo, 200);
 
-		JsonNode err = json(deposit(aId, 1_000, 400));
+		JsonNode err = json(deposit(aNo, 1_000, 400));
 		assertThat(err.path("code").asText()).isEqualTo("ACCOUNT_INACTIVE");
 	}
 
@@ -122,12 +172,26 @@ class RemittanceApiIntegrationTest {
 		JsonNode dup = json(createAccountExpectError(accNo, 400));
 		assertThat(dup.path("code").asText()).isEqualTo("DUPLICATE_ACCOUNT_NO");
 
-		long aId = createAccount(randomAccountNo("VAL"));
-		JsonNode invalid = json(deposit(aId, 0, 400));
+		String aNo = createAccount(randomAccountNo("VAL"));
+		JsonNode invalid = json(deposit(aNo, 0, 400));
 		assertThat(invalid.path("code").asText()).isEqualTo("VALIDATION_ERROR");
 
-		JsonNode notFound = json(deposit(999999L, 1000, 404));
+		String notFoundAccountNo = "NOT-FOUND-" + System.nanoTime();
+		JsonNode notFound = json(deposit(notFoundAccountNo, 1000, 404));
 		assertThat(notFound.path("code").asText()).isEqualTo("ACCOUNT_NOT_FOUND");
+	}
+
+	// -------------------- 7) 잔액 조회 --------------------
+	@Test
+	void balance_endpoint_returns_current_balance() throws Exception {
+		String aNo = createAccount(randomAccountNo("BAL"));
+
+		deposit(aNo, 50_000);
+		withdraw(aNo, 10_000, 200);
+
+		JsonNode data = balance(aNo);
+		assertThat(data.path("accountNo").asText()).isEqualTo(aNo);
+		assertThat(data.path("balance").asLong()).isEqualTo(40_000);
 	}
 
 	// ===================== Helpers =====================
@@ -140,7 +204,7 @@ class RemittanceApiIntegrationTest {
 		return om.readTree(body);
 	}
 
-	private long createAccount(String accountNo) throws Exception {
+	private String createAccount(String accountNo) throws Exception {
 		String body = om.writeValueAsString(Map.of("accountNo", accountNo));
 		MvcResult result = mvc.perform(post("/accounts")
 				.contentType(MediaType.APPLICATION_JSON)
@@ -150,7 +214,7 @@ class RemittanceApiIntegrationTest {
 		assertThat(result.getResponse().getStatus()).isEqualTo(200);
 
 		JsonNode root = json(result.getResponse().getContentAsString());
-		return root.path("data").path("accountId").asLong();
+		return root.path("data").path("accountNo").asText();
 	}
 
 	private String createAccountExpectError(String accountNo, int expectedStatus) throws Exception {
@@ -164,9 +228,9 @@ class RemittanceApiIntegrationTest {
 		return result.getResponse().getContentAsString();
 	}
 
-	private String deposit(long accountId, long amount, int expectedStatus) throws Exception {
+	private String deposit(String accountNo, long amount, int expectedStatus) throws Exception {
 		String body = om.writeValueAsString(Map.of("amount", amount));
-		MvcResult result = mvc.perform(post("/accounts/" + accountId + "/deposit")
+		MvcResult result = mvc.perform(post("/accounts/" + accountNo + "/deposit")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(body))
 			.andReturn();
@@ -175,13 +239,13 @@ class RemittanceApiIntegrationTest {
 		return result.getResponse().getContentAsString();
 	}
 
-	private void deposit(long accountId, long amount) throws Exception {
-		deposit(accountId, amount, 200);
+	private void deposit(String accountNo, long amount) throws Exception {
+		deposit(accountNo, amount, 200);
 	}
 
-	private String withdraw(long accountId, long amount, int expectedStatus) throws Exception {
+	private String withdraw(String accountNo, long amount, int expectedStatus) throws Exception {
 		String body = om.writeValueAsString(Map.of("amount", amount));
-		MvcResult result = mvc.perform(post("/accounts/" + accountId + "/withdraw")
+		MvcResult result = mvc.perform(post("/accounts/" + accountNo + "/withdraw")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(body))
 			.andReturn();
@@ -190,10 +254,10 @@ class RemittanceApiIntegrationTest {
 		return result.getResponse().getContentAsString();
 	}
 
-	private String remit(long fromId, long toId, long amount, int expectedStatus) throws Exception {
+	private String remit(String fromAccountNo, String toAccountNo, long amount, int expectedStatus) throws Exception {
 		String body = om.writeValueAsString(Map.of(
-			"fromAccountId", fromId,
-			"toAccountId", toId,
+			"fromAccountNo", fromAccountNo,
+			"toAccountNo", toAccountNo,
 			"amount", amount
 		));
 		MvcResult result = mvc.perform(post("/remittances")
@@ -205,8 +269,8 @@ class RemittanceApiIntegrationTest {
 		return result.getResponse().getContentAsString();
 	}
 
-	private JsonNode transactions(long accountId, int size) throws Exception {
-		MvcResult result = mvc.perform(get("/accounts/" + accountId + "/transactions")
+	private JsonNode transactions(String accountNo, int size) throws Exception {
+		MvcResult result = mvc.perform(get("/accounts/" + accountNo + "/transactions")
 				.param("size", String.valueOf(size)))
 			.andReturn();
 
@@ -214,10 +278,18 @@ class RemittanceApiIntegrationTest {
 		return json(result.getResponse().getContentAsString()).path("data");
 	}
 
-	private void deleteAccount(long accountId, int expectedStatus) throws Exception {
-		MvcResult result = mvc.perform(delete("/accounts/" + accountId))
+	private void deleteAccount(String accountNo, int expectedStatus) throws Exception {
+		MvcResult result = mvc.perform(delete("/accounts/" + accountNo))
 			.andReturn();
 
 		assertThat(result.getResponse().getStatus()).isEqualTo(expectedStatus);
+	}
+
+	private JsonNode balance(String accountNo) throws Exception {
+		MvcResult result = mvc.perform(get("/accounts/" + accountNo + "/balance"))
+			.andReturn();
+
+		assertThat(result.getResponse().getStatus()).isEqualTo(200);
+		return json(result.getResponse().getContentAsString()).path("data");
 	}
 }

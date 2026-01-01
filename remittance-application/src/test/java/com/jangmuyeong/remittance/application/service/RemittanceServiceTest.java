@@ -50,12 +50,21 @@ class RemittanceServiceTest {
 	@Test
 	void remit_success_applies_fee_and_writes_3_ledgers() {
 		long fromId = 1L, toId = 2L;
+		String fromNo = "111-222";
+		String toNo = "333-444";
 
-		Account from = new Account(fromId, "111-222", AccountStatus.ACTIVE, 1_000_000L);
-		Account to   = new Account(toId,   "333-444", AccountStatus.ACTIVE, 0L);
+		Account baseFrom = new Account(fromId, fromNo, AccountStatus.ACTIVE, 1_000_000L);
+		Account baseTo = new Account(toId, toNo, AccountStatus.ACTIVE, 0L);
 
-		when(accountPort.findByIdForUpdate(1L)).thenReturn(Optional.of(from));
-		when(accountPort.findByIdForUpdate(2L)).thenReturn(Optional.of(to));
+		Account lockedFrom = new Account(fromId, fromNo, AccountStatus.ACTIVE, 1_000_000L);
+		Account lockedTo = new Account(toId, toNo, AccountStatus.ACTIVE, 0L);
+
+		when(accountPort.findByAccountNo(fromNo)).thenReturn(Optional.of(baseFrom));
+		when(accountPort.findByAccountNo(toNo)).thenReturn(Optional.of(baseTo));
+
+		when(accountPort.findByIdForUpdate(1L)).thenReturn(Optional.of(lockedFrom));
+		when(accountPort.findByIdForUpdate(2L)).thenReturn(Optional.of(lockedTo));
+
 		when(accountPort.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
 
 		when(feePolicy.calculateFee(100_000L)).thenReturn(1_000L);
@@ -64,36 +73,46 @@ class RemittanceServiceTest {
 		when(dailyLimitPort.getOrCreate(eq(fromId), eq(LocalDate.now(clock)))).thenReturn(limit);
 		when(dailyLimitPort.save(any(DailyLimit.class))).thenAnswer(inv -> inv.getArgument(0));
 
-		var res = service.remit(new RemitCommand(fromId, toId, 100_000L));
+		com.jangmuyeong.remittance.application.dto.result.RemitResult res =
+			service.remit(new RemitCommand(fromNo, toNo, 100_000L));
 
 		assertThat(res.fee()).isEqualTo(1_000L);
 		assertThat(res.fromBalance()).isEqualTo(899_000L); // 1,000,000 - (100,000 + 1,000)
 		assertThat(res.toBalance()).isEqualTo(100_000L);
+		assertThat(res.fromAccountNo()).isEqualTo(fromNo);
+		assertThat(res.toAccountNo()).isEqualTo(toNo);
 
 		ArgumentCaptor<LedgerEntry> captor = ArgumentCaptor.forClass(LedgerEntry.class);
 		verify(ledgerPort, times(3)).save(captor.capture());
 		List<LedgerEntry> entries = captor.getAllValues();
 
 		assertThat(entries).hasSize(3);
+
+		// 1) TRANSFER_OUT
 		assertThat(entries.get(0).getType()).isEqualTo(TransactionType.TRANSFER_OUT);
 		assertThat(entries.get(0).getAccountId()).isEqualTo(fromId);
 		assertThat(entries.get(0).getCounterpartyAccountId()).isEqualTo(toId);
 		assertThat(entries.get(0).getAmount()).isEqualTo(100_000L);
+		assertThat(entries.get(0).getBalanceAfter()).isEqualTo(899_000L);
 
+		// 2) FEE (수수료 포함 총 차감 결과 잔액과 동일해야 함)
 		assertThat(entries.get(1).getType()).isEqualTo(TransactionType.FEE);
 		assertThat(entries.get(1).getAccountId()).isEqualTo(fromId);
 		assertThat(entries.get(1).getFeeAmount()).isEqualTo(1_000L);
 		assertThat(entries.get(1).getAmount()).isEqualTo(0L);
+		assertThat(entries.get(1).getBalanceAfter()).isEqualTo(899_000L);
 
+		// 3) TRANSFER_IN
 		assertThat(entries.get(2).getType()).isEqualTo(TransactionType.TRANSFER_IN);
 		assertThat(entries.get(2).getAccountId()).isEqualTo(toId);
 		assertThat(entries.get(2).getCounterpartyAccountId()).isEqualTo(fromId);
 		assertThat(entries.get(2).getAmount()).isEqualTo(100_000L);
+		assertThat(entries.get(2).getBalanceAfter()).isEqualTo(100_000L);
 	}
 
 	@Test
 	void remit_throws_when_same_account() {
-		assertThatThrownBy(() -> service.remit(new RemitCommand(1L, 1L, 1000L)))
+		assertThatThrownBy(() -> service.remit(new RemitCommand("111-222", "111-222", 1000L)))
 			.isInstanceOf(DomainException.class);
 
 		verifyNoInteractions(accountPort, dailyLimitPort, ledgerPort, feePolicy);
@@ -101,13 +120,22 @@ class RemittanceServiceTest {
 
 	@Test
 	void remit_locks_in_ascending_order_to_avoid_deadlock() {
-		long fromId = 5L, toId = 3L; // 일부러 from > to
+		// 일부러 from > to (id 기준 데드락 방지 락 순서 검증)
+		long fromId = 5L, toId = 3L;
+		String fromNo = "555-666";
+		String toNo = "333-444";
 
-		Account a3 = new Account(3L, "333-444", AccountStatus.ACTIVE, 0L);
-		Account a5 = new Account(5L, "555-666", AccountStatus.ACTIVE, 1_000_000L);
+		Account baseFrom = new Account(fromId, fromNo, AccountStatus.ACTIVE, 1_000_000L);
+		Account baseTo = new Account(toId, toNo, AccountStatus.ACTIVE, 0L);
 
-		when(accountPort.findByIdForUpdate(3L)).thenReturn(Optional.of(a3));
-		when(accountPort.findByIdForUpdate(5L)).thenReturn(Optional.of(a5));
+		Account locked3 = new Account(3L, toNo, AccountStatus.ACTIVE, 0L);
+		Account locked5 = new Account(5L, fromNo, AccountStatus.ACTIVE, 1_000_000L);
+
+		when(accountPort.findByAccountNo(fromNo)).thenReturn(Optional.of(baseFrom));
+		when(accountPort.findByAccountNo(toNo)).thenReturn(Optional.of(baseTo));
+
+		when(accountPort.findByIdForUpdate(3L)).thenReturn(Optional.of(locked3));
+		when(accountPort.findByIdForUpdate(5L)).thenReturn(Optional.of(locked5));
 		when(accountPort.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
 
 		when(feePolicy.calculateFee(100_000L)).thenReturn(1_000L);
@@ -115,7 +143,7 @@ class RemittanceServiceTest {
 		when(dailyLimitPort.getOrCreate(eq(5L), eq(LocalDate.now(clock)))).thenReturn(limit);
 		when(dailyLimitPort.save(any(DailyLimit.class))).thenAnswer(inv -> inv.getArgument(0));
 
-		service.remit(new RemitCommand(fromId, toId, 100_000L));
+		service.remit(new RemitCommand(fromNo, toNo, 100_000L));
 
 		InOrder inOrder = inOrder(accountPort);
 		inOrder.verify(accountPort).findByIdForUpdate(3L);
@@ -125,19 +153,27 @@ class RemittanceServiceTest {
 	@Test
 	void remit_throws_when_transfer_daily_limit_exceeded_and_does_not_save_accounts_or_ledgers() {
 		long fromId = 1L, toId = 2L;
+		String fromNo = "111-222";
+		String toNo = "333-444";
 
-		Account from = new Account(fromId, "111-222", AccountStatus.ACTIVE, 10_000_000L);
-		Account to   = new Account(toId,   "333-444", AccountStatus.ACTIVE, 0L);
+		Account baseFrom = new Account(fromId, fromNo, AccountStatus.ACTIVE, 10_000_000L);
+		Account baseTo = new Account(toId, toNo, AccountStatus.ACTIVE, 0L);
 
-		when(accountPort.findByIdForUpdate(1L)).thenReturn(Optional.of(from));
-		when(accountPort.findByIdForUpdate(2L)).thenReturn(Optional.of(to));
+		Account lockedFrom = new Account(fromId, fromNo, AccountStatus.ACTIVE, 10_000_000L);
+		Account lockedTo = new Account(toId, toNo, AccountStatus.ACTIVE, 0L);
+
+		when(accountPort.findByAccountNo(fromNo)).thenReturn(Optional.of(baseFrom));
+		when(accountPort.findByAccountNo(toNo)).thenReturn(Optional.of(baseTo));
+
+		when(accountPort.findByIdForUpdate(1L)).thenReturn(Optional.of(lockedFrom));
+		when(accountPort.findByIdForUpdate(2L)).thenReturn(Optional.of(lockedTo));
 		when(feePolicy.calculateFee(anyLong())).thenReturn(0L);
 
 		// 이미 2,000,000 이체된 상태에서 1,500,000 추가 -> 한도 초과
 		DailyLimit limit = new DailyLimit(1L, fromId, LocalDate.now(clock), 0L, 2_000_000L);
 		when(dailyLimitPort.getOrCreate(eq(fromId), eq(LocalDate.now(clock)))).thenReturn(limit);
 
-		assertThatThrownBy(() -> service.remit(new RemitCommand(fromId, toId, 1_500_000L)))
+		assertThatThrownBy(() -> service.remit(new RemitCommand(fromNo, toNo, 1_500_000L)))
 			.isInstanceOf(DomainException.class);
 
 		verify(dailyLimitPort, never()).save(any()); // addTransfer에서 터짐

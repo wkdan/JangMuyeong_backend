@@ -19,7 +19,8 @@ class LedgerEntryTest {
 			TransactionType.TRANSFER_OUT,
 			100_000,
 			0,
-			now
+			now,
+			899_000
 		);
 
 		assertThat(e.getId()).isEqualTo(10L);
@@ -29,5 +30,6 @@ class LedgerEntryTest {
 		assertThat(e.getAmount()).isEqualTo(100_000);
 		assertThat(e.getFeeAmount()).isEqualTo(0);
 		assertThat(e.getOccurredAt()).isEqualTo(now);
+		assertThat(e.getBalanceAfter()).isEqualTo(899_000);
 	}
 }

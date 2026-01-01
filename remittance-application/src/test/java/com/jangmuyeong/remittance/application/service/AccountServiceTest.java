@@ -30,7 +30,8 @@ class AccountServiceTest {
 		when(accountPort.save(any(Account.class)))
 			.thenReturn(new Account(1L, "111-222", AccountStatus.ACTIVE, 0L));
 
-		var res = service.create(new CreateAccountCommand("111-222"));
+		com.jangmuyeong.remittance.application.dto.result.CreateAccountResult res =
+			service.create(new CreateAccountCommand("111-222"));
 
 		assertThat(res.accountId()).isEqualTo(1L);
 		assertThat(res.accountNo()).isEqualTo("111-222");
@@ -50,11 +51,14 @@ class AccountServiceTest {
 
 	@Test
 	void delete_marks_deleted_and_saves() {
-		Account a = new Account(1L, "111-222", AccountStatus.ACTIVE, 0L);
-		when(accountPort.findByIdForUpdate(1L)).thenReturn(Optional.of(a));
+		Account base = new Account(1L, "111-222", AccountStatus.ACTIVE, 0L);
+		Account locked = new Account(1L, "111-222", AccountStatus.ACTIVE, 0L);
+
+		when(accountPort.findByAccountNo("111-222")).thenReturn(Optional.of(base));
+		when(accountPort.findByIdForUpdate(1L)).thenReturn(Optional.of(locked));
 		when(accountPort.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
 
-		service.delete(1L);
+		service.delete("111-222");
 
 		ArgumentCaptor<Account> captor = ArgumentCaptor.forClass(Account.class);
 		verify(accountPort).save(captor.capture());
@@ -63,9 +67,9 @@ class AccountServiceTest {
 
 	@Test
 	void delete_throws_when_account_not_found() {
-		when(accountPort.findByIdForUpdate(999L)).thenReturn(Optional.empty());
+		when(accountPort.findByAccountNo("999-000")).thenReturn(Optional.empty());
 
-		assertThatThrownBy(() -> service.delete(999L))
+		assertThatThrownBy(() -> service.delete("999-000"))
 			.isInstanceOf(DomainException.class);
 
 		verify(accountPort, never()).save(any());
