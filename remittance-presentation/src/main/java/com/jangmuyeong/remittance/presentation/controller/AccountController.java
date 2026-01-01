@@ -54,9 +54,9 @@ public class AccountController {
 	 * 구현: 소프트 삭제(상태를 DELETED로 변경)로 처리
 	 */
 	@Operation(summary = "계좌 삭제")
-	@DeleteMapping("/{accountId}")
-	public RsData<Void> delete(@PathVariable("accountId") Long accountId) {
-		accountService.delete(accountId);
+	@DeleteMapping("/{accountNo}")
+	public RsData<Void> delete(@PathVariable("accountNo") String accountNo) {
+		accountService.delete(accountNo);
 		return RsData.of(null);
 	}
 
@@ -65,12 +65,12 @@ public class AccountController {
 	 * 특정 계좌에 금액을 입금
 	 */
 	@Operation(summary = "입금")
-	@PostMapping("/{accountId}/deposit")
+	@PostMapping("/{accountNo}/deposit")
 	public RsData<BalanceResult> deposit(
-		@PathVariable("accountId") Long accountId,
+		@PathVariable("accountNo") String accountNo,
 		@Valid @RequestBody AmountRequest req
 	) {
-		return RsData.of(moneyService.deposit(new DepositCommand(accountId, req.amount())));
+		return RsData.of(moneyService.deposit(new DepositCommand(accountNo, req.amount())));
 	}
 
 	/**
@@ -79,11 +79,11 @@ public class AccountController {
 	 * 출금 일 한도(1,000,000원)를 체크
 	 */
 	@Operation(summary = "출금")
-	@PostMapping("/{accountId}/withdraw")
+	@PostMapping("/{accountNo}/withdraw")
 	public RsData<BalanceResult> withdraw(
-		@PathVariable("accountId") Long accountId,
+		@PathVariable("accountNo") String accountNo,
 		@Valid @RequestBody AmountRequest req
 	) {
-		return RsData.of(moneyService.withdraw(new WithdrawCommand(accountId, req.amount())));
+		return RsData.of(moneyService.withdraw(new WithdrawCommand(accountNo, req.amount())));
 	}
 }

@@ -28,7 +28,6 @@ public class AccountService {
 	 */
 	@Transactional
 	public CreateAccountResult create(CreateAccountCommand command) {
-		// 중복 계좌번호 방지
 		accountPort.findByAccountNo(command.accountNo())
 			.ifPresent(a -> { throw new DomainException(ErrorCode.DUPLICATE_ACCOUNT_NO); });
 
@@ -41,9 +40,11 @@ public class AccountService {
 	 * 상태를 DELETE로 변경
 	 */
 	@Transactional
-	public void delete(Long accountId) {
-		//for update 락으로 조회
-		Account account = accountPort.findByIdForUpdate(accountId)
+	public void delete(String accountNo) {
+		Account base = accountPort.findByAccountNo(accountNo)
+			.orElseThrow(() -> new DomainException(ErrorCode.ACCOUNT_NOT_FOUND));
+
+		Account account = accountPort.findByIdForUpdate(base.getId())
 			.orElseThrow(() -> new DomainException(ErrorCode.ACCOUNT_NOT_FOUND));
 
 		account.delete();

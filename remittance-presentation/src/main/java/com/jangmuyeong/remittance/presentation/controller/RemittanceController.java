@@ -18,7 +18,7 @@ import jakarta.validation.Valid;
 /**
  * 이체(송금) API 컨트롤러
  */
-@Tag(name = "Remittances", description = "계좌 간 송금(이체) API")
+@Tag(name = "Remittances", description = "이체(송금) API")
 @RestController
 @RequestMapping("/remittances")
 public class RemittanceController {
@@ -32,11 +32,11 @@ public class RemittanceController {
 	/**
 	 * 이체 API
 	 */
-	@Operation(summary = "송금(이체)")
+	@Operation(summary = "이체")
 	@PostMapping
 	public RsData<RemitResult> remit(@Valid @RequestBody RemitRequest req) {
 		return RsData.of(service.remit(
-			new RemitCommand(req.fromAccountId(), req.toAccountId(), req.amount())
+			new RemitCommand(req.fromAccountNo(), req.toAccountNo(), req.amount())
 		));
 	}
 }

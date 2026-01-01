@@ -5,7 +5,9 @@ package com.jangmuyeong.remittance.application.dto.result;
  */
 public record RemitResult(
 	Long fromAccountId,
+	String fromAccountNo,
 	Long toAccountId,
+	String toAccountNo,
 	long amount,
 	long fee,
 	long fromBalance,

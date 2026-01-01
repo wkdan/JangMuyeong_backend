@@ -20,7 +20,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
  */
 @Tag(name = "Transactions", description = "거래내역 조회 API")
 @RestController
-@RequestMapping("/accounts/{accountId}/transactions")
+@RequestMapping("/accounts/{accountNo}/transactions")
 public class TransactionController {
 
 	private final TransactionQueryService queryService;
@@ -32,16 +32,16 @@ public class TransactionController {
 	/**
 	 * 거래내역 최신순 조회 API
 	 *
-	 * @param accountId 대상 계좌 ID
+	 * @param accountNo 대상 계좌
 	 * @param size      반환 개수(기본 20)
 	 */
 	@Operation(summary = "거래내역 최신순 조회")
 	@GetMapping
 	public RsData<List<TransactionItemResponse>> latest(
-		@PathVariable("accountId") Long accountId,
+		@PathVariable("accountNo") String accountNo,
 		@RequestParam(defaultValue = "20") int size
 	) {
-		List<TransactionItemResponse> list = queryService.latest(accountId, size).stream()
+		List<TransactionItemResponse> list = queryService.latest(accountNo, size).stream()
 			.map(e -> new TransactionItemResponse(
 				e.getId(),
 				e.getType().name(),

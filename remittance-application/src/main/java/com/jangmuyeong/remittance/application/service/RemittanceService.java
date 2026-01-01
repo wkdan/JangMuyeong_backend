@@ -53,21 +53,30 @@ public class RemittanceService {
 	 */
 	@Transactional
 	public RemitResult remit(RemitCommand command) {
-		if (command.fromAccountId().equals(command.toAccountId())) {
+		// 1) 동일 계좌 이체 방지
+		if (command.fromAccountNo().equals(command.toAccountNo())) {
 			throw new DomainException(ErrorCode.SAME_ACCOUNT_TRANSFER_NOT_ALLOWED);
 		}
 
-		// 데드락 방지: accountId 오름차순으로 락 획득
-		Long firstId = Math.min(command.fromAccountId(), command.toAccountId());
-		Long secondId = Math.max(command.fromAccountId(), command.toAccountId());
+		Long fromId = accountPort.findByAccountNo(command.fromAccountNo())
+			.orElseThrow(() -> new DomainException(ErrorCode.ACCOUNT_NOT_FOUND))
+			.getId();
+
+		Long toId = accountPort.findByAccountNo(command.toAccountNo())
+			.orElseThrow(() -> new DomainException(ErrorCode.ACCOUNT_NOT_FOUND))
+			.getId();
+
+		// 2) 데드락 방지: accountId 오름차순으로 락 획득
+		Long firstId = Math.min(fromId, toId);
+		Long secondId = Math.max(fromId, toId);
 
 		Account first = accountPort.findByIdForUpdate(firstId)
 			.orElseThrow(() -> new DomainException(ErrorCode.ACCOUNT_NOT_FOUND));
 		Account second = accountPort.findByIdForUpdate(secondId)
 			.orElseThrow(() -> new DomainException(ErrorCode.ACCOUNT_NOT_FOUND));
 
-		Account from = command.fromAccountId().equals(firstId) ? first : second;
-		Account to = command.toAccountId().equals(firstId) ? first : second;
+		Account from = fromId.equals(firstId) ? first : second;
+		Account to = toId.equals(firstId) ? first : second;
 
 		long fee = feePolicy.calculateFee(command.amount());
 		long totalDebit = command.amount() + fee;
@@ -94,7 +103,15 @@ public class RemittanceService {
 		ledgerPort.save(new LedgerEntry(null, savedTo.getId(), savedFrom.getId(), TransactionType.TRANSFER_IN,
 			command.amount(), 0L, now));
 
-		return new RemitResult(savedFrom.getId(), savedTo.getId(), command.amount(), fee,
-			savedFrom.getBalance(), savedTo.getBalance());
+		return new RemitResult(
+			savedFrom.getId(),
+			savedFrom.getAccountNo(),
+			savedTo.getId(),
+			savedTo.getAccountNo(),
+			command.amount(),
+			fee,
+			savedFrom.getBalance(),
+			savedTo.getBalance()
+		);
 	}
 }

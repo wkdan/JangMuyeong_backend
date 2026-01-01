@@ -27,13 +27,15 @@ public class TransactionQueryService {
 
 	/**
 	 * 계좌별 최신 거래내역 조회
-	 * @param accountId 계좌 id
+	 * @param accountNo 계좌 id
 	 * @param size 반환 개수
 	 */
 	@Transactional(readOnly = true)
-	public List<LedgerEntry> latest(Long accountId, int size) {
-		accountPort.findById(accountId)
-			.orElseThrow(() -> new DomainException(ErrorCode.ACCOUNT_NOT_FOUND));
+	public List<LedgerEntry> latest(String accountNo, int size) {
+		Long accountId = accountPort.findByAccountNo(accountNo)
+			.orElseThrow(() -> new DomainException(ErrorCode.ACCOUNT_NOT_FOUND))
+			.getId();
+
 		// 요구사항: 최신순
 		return ledgerPort.findLatestByAccountId(accountId, size);
 	}

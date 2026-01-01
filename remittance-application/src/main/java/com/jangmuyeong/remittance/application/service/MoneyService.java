@@ -44,7 +44,11 @@ public class MoneyService {
 	@Transactional
 	public BalanceResult deposit(DepositCommand command) {
 		// 잔액 변경이므로 for update 락 조회
-		Account account = accountPort.findByIdForUpdate(command.accountId())
+		Long accountId = accountPort.findByAccountNo(command.accountNo())
+			.orElseThrow(() -> new DomainException(ErrorCode.ACCOUNT_NOT_FOUND))
+			.getId();
+
+		Account account = accountPort.findByIdForUpdate(accountId)
 			.orElseThrow(() -> new DomainException(ErrorCode.ACCOUNT_NOT_FOUND));
 
 		account.deposit(command.amount());
@@ -54,7 +58,7 @@ public class MoneyService {
 		ledgerPort.save(new LedgerEntry(null, saved.getId(), null, TransactionType.DEPOSIT,
 			command.amount(), 0L, Instant.now(clock)));
 
-		return new BalanceResult(saved.getId(), saved.getBalance());
+		return new BalanceResult(saved.getId(), saved.getAccountNo(), saved.getBalance());
 	}
 
 	/**
@@ -62,7 +66,11 @@ public class MoneyService {
 	 */
 	@Transactional
 	public BalanceResult withdraw(WithdrawCommand command) {
-		Account account = accountPort.findByIdForUpdate(command.accountId())
+		Long accountId = accountPort.findByAccountNo(command.accountNo())
+			.orElseThrow(() -> new DomainException(ErrorCode.ACCOUNT_NOT_FOUND))
+			.getId();
+
+		Account account = accountPort.findByIdForUpdate(accountId)
 			.orElseThrow(() -> new DomainException(ErrorCode.ACCOUNT_NOT_FOUND));
 
 		// 요구사항: 출금 일 한도 1,000,000원
@@ -77,6 +85,6 @@ public class MoneyService {
 		ledgerPort.save(new LedgerEntry(null, saved.getId(), null, TransactionType.WITHDRAW,
 			command.amount(), 0L, Instant.now(clock)));
 
-		return new BalanceResult(saved.getId(), saved.getBalance());
+		return new BalanceResult(saved.getId(), saved.getAccountNo(), saved.getBalance());
 	}
 }
