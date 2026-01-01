@@ -87,4 +87,15 @@ public class MoneyService {
 
 		return new BalanceResult(saved.getId(), saved.getAccountNo(), saved.getBalance());
 	}
+
+	/**
+	 * 잔액 조회
+	 */
+	@Transactional(readOnly = true)
+	public BalanceResult balance(String accountNo) {
+		Account account = accountPort.findByAccountNo(accountNo)
+			.orElseThrow(() -> new DomainException(ErrorCode.ACCOUNT_NOT_FOUND));
+
+		return new BalanceResult(account.getId(), account.getAccountNo(), account.getBalance());
+	}
 }

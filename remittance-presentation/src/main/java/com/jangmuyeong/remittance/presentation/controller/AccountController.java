@@ -1,6 +1,7 @@
 package com.jangmuyeong.remittance.presentation.controller;
 
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -85,5 +86,15 @@ public class AccountController {
 		@Valid @RequestBody AmountRequest req
 	) {
 		return RsData.of(moneyService.withdraw(new WithdrawCommand(accountNo, req.amount())));
+	}
+
+	/**
+	 * 잔액 조회 API
+	 * 특정 계좌의 현재 잔액을 조회
+	 */
+	@Operation(summary = "잔액 조회")
+	@GetMapping("/{accountNo}/balance")
+	public RsData<BalanceResult> balance(@PathVariable("accountNo") String accountNo) {
+		return RsData.of(moneyService.balance(accountNo));
 	}
 }
