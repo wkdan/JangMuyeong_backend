@@ -3,8 +3,9 @@
 ## 1. 실행 방법
 
 ### 1.1 Docker Compose로 전체 실행 (MySQL + App, 빌드 시 테스트 포함)
-
+```
 docker compose up --build
+```
 
 - Swagger 확인
 http://localhost:8080/swagger-ui.html
